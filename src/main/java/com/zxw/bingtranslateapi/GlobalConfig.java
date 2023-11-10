@@ -2,15 +2,20 @@ package com.zxw.bingtranslateapi;
 
 import lombok.Data;
 
+import java.util.Date;
+
 @Data
 public class GlobalConfig {
     private String IG;
     private String IID;
-    private String subdomian;
     private String cookie;
-    private Integer key;
+    private Long key;
     private String token;
-    private Integer tokenTs;
-    private Integer tokenExpiryInterval;
+    private Long tokenTs;
+    private Long tokenExpiryInterval;
     private Integer count;
+
+    public boolean isTokenExpired() {
+        return new Date().getTime() - tokenTs > tokenExpiryInterval;
+    }
 }

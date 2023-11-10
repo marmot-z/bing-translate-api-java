@@ -26,7 +26,7 @@ public class Languages {
     );
 
     static {
-        Pattern pattern = Pattern.compile("\"(\\w-)*?\":\\s*\"(.*?)\",");
+        Pattern pattern = Pattern.compile("\"([\\w-])*?\":\\s*\"(.*?)\",?");
         String line;
 
         try (
@@ -34,6 +34,12 @@ public class Languages {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))
         ) {
             while ((line = reader.readLine()) != null) {
+                line = line.trim();
+
+                if (line.isBlank() || line.startsWith("{") || line.startsWith("}")) {
+                    continue;
+                }
+
                 Matcher matcher = pattern.matcher(line);
 
                 if (matcher.find()) {
@@ -65,14 +71,12 @@ public class Languages {
             return null;
         }
 
-        String langCode;
-
-        if ((langCode = LANGS.get(lang)) != null) {
-            return langCode;
+        if (LANGS.containsKey(lang)) {
+            return lang;
         }
 
         for (String supportLang : CORRECT_LANGS) {
-            if (supportLang.equalsIgnoreCase(lang) || LANGS.get(supportLang).equalsIgnoreCase(lang)) {
+            if (lang.equalsIgnoreCase(supportLang) || lang.equalsIgnoreCase(LANGS.get(supportLang))) {
                 return supportLang;
             }
         }
