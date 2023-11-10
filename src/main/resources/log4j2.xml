@@ -4,19 +4,10 @@
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="%highlight{[%d{yyyy-MM-dd HH:mm:sss}][%level][%logger{36}]-%m%n}{FATAL=red, ERROR=red, WARN=yellow, INFO=green, DEBUG=cyan,TRACE=blue}"/>
         </Console>
-        <RollingFile name="RollingFile" fileName="logs/baicizhan-helper-proxy.log"
-                     filePattern="logs/baicizhan-helper-proxy-%d{yyyy-MM-dd}.log">
-            <PatternLayout pattern="%d %p %c{1.} [%t] %m%n"/>
-            <Policies>
-                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
-            </Policies>
-            <DefaultRolloverStrategy max="3"/>
-        </RollingFile>
     </Appenders>
     <Loggers>
         <Root level="info">
             <AppenderRef ref="Console"/>
-            <AppenderRef ref="RollingFile"/>
         </Root>
     </Loggers>
 </Configuration>
