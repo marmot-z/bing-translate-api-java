@@ -21,6 +21,10 @@ TranslationResult result = translator.translate(params);
 System.out.println(result);
 ```
 
+## 特性
+- 支持多线程
+- 翻译配置自动刷新
+
 注意项：
 1. 当响应码为 409 时，代表当前调用频率过于频繁  
    由于该 sdk 不是商业级付费的 API，其支持的调用频率有限，需要客户端适当控制发送频率（否则可能会被封禁 ip），或者使用代理进行访问。

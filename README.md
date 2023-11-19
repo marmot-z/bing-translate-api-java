@@ -21,6 +21,9 @@ TranslationResult result = translator.translate(params);
 System.out.println(result);
 ```
 
+## Feature
+- Multi-thread supported
+- Auto renewable translate config
 
 Notes:
 1. When the response code is 409, it indicates that the current call frequency is too high.  
