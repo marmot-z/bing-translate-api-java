@@ -5,7 +5,7 @@ import lombok.Data;
 import java.util.Date;
 
 @Data
-public class GlobalConfig {
+public class TranslateConfig {
     private String IG;
     private String IID;
     private String cookie;
