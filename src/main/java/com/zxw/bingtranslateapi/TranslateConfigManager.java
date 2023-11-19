@@ -42,7 +42,7 @@ public class TranslateConfigManager {
 
         try {
             determineTranslateDomain();
-            scheduledExecutorService.schedule(this::loadConfig, 1000, TimeUnit.MILLISECONDS);
+            scheduledExecutorService.scheduleAtFixedRate(this::loadConfig, 0L, 1000L, TimeUnit.MILLISECONDS);
         } catch (IOException e) {
             throw new RuntimeException("Load bing translator config failed.", e);
         }
