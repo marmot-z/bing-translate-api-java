@@ -1,5 +1,8 @@
 package com.zxw.bingtranslateapi;
 
+import com.zxw.bingtranslateapi.entity.TranslateConfig;
+import com.zxw.bingtranslateapi.exception.TranslationConfigLoadException;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
@@ -18,37 +21,85 @@ import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 翻译配置管理器 <br>
+ * 可自动在翻译配置过期前进行续约
+ */
 @Slf4j
-public class TranslateConfigManager {
+public class TranslationConfigManager {
 
+    /**
+     * 重新加载配置的阈值 <br>
+     * 当配置过期时间 < reloadThreshold 时，触发重新加载配置逻辑
+     */
     private final int reloadThreshold = 1000;
-
+    /**
+     * 保证翻译配置线程安全的锁 <br>
+     * 获取翻译配置或写入翻译配置时，需要先获取该锁
+     */
     private final Lock lock = new ReentrantLock();
-
-    private final Condition initCondition = lock.newCondition();
+    /**
+     * 配置加载完毕 condition <br>
+     * 当用户线程获取翻译配置时，翻译配置为 null 或者已过期，则在该 condition 上等待。
+     * 直到定时线程获取翻译配置成功后唤醒等待的线程
+     */
     private final Condition loadConfigCondition = lock.newCondition();
-
+    /**
+     * 定时线程池<br>
+     * 用于定时更新翻译配置
+     */
     private final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(1);
+    /**
+     * okHttpClient instance
+     */
     private final OkHttpClient okHttpClient;
 
-    private volatile boolean inited = false;
+    /**
+     * 翻译配置 <br>
+     * 该对象线程安全由 {@link #lock} 守护
+     */
     private volatile TranslateConfig translateConfig;
+    /**
+     * 最近加载配置时出现的异常 <br>
+     * 当该异常不为空时，代表最近一次加载配置时出现了异常，此时调用 {@link #getTranslateConfig}
+     * 方法时会抛出 {@link TranslationConfigLoadException} 异常
+     */
+    private volatile TranslationConfigLoadException latestConfigLoadException = null;
+    /**
+     * bing translator 域名 <br>
+     *
+     * <p>不同地区访问 <a href="https://www.bing.com/translator">https://www.bing.com/translator</a> 会被重定向到不同子域名，
+     * 比如：在中国访问该网站，会被重定向到 <a href="https://cn.bing.com/translator">https://cn.bing.com/translator</a>。</p>
+     *
+     * 所以在开始翻译之前，需要先判断当前地区对应的 bing translator 域名，以此作为后续请求的域名，以防止后续请求被重定向。
+     */
+    @Getter
     private String translateDomain;
+    /**
+     * bing translator 页面地址 = {@link #translateDomain} + /translator
+     */
+    @Getter
     private String translatePageUrl;
+    /**
+     * bing translate api 地址 = {@link #translateDomain} + /ttranslatev3?isVertical=1
+     */
+    @Getter
     private String translateApiUrl;
 
-    public TranslateConfigManager(OkHttpClient okHttpClient) {
+    /**
+     * TranslationConfigManager construct
+     *
+     * @param okHttpClient
+     * @throws TranslationConfigLoadException 当初始化翻译参数时出现错误时，抛出该异常
+     */
+    public TranslationConfigManager(OkHttpClient okHttpClient) throws TranslationConfigLoadException {
         this.okHttpClient = okHttpClient;
 
-        try {
-            determineTranslateDomain();
-            scheduledExecutorService.scheduleAtFixedRate(this::loadConfig, 0L, 1000L, TimeUnit.MILLISECONDS);
-        } catch (IOException e) {
-            throw new RuntimeException("Load bing translator config failed.", e);
-        }
+        determineTranslateDomain();
+        scheduledExecutorService.scheduleAtFixedRate(this::loadConfig, 0L, 1000L, TimeUnit.MILLISECONDS);
     }
 
-    private void determineTranslateDomain() throws IOException {
+    private void determineTranslateDomain() throws TranslationConfigLoadException {
         Request request = new Request.Builder()
                 .addHeader("user-agent", BingTranslator.DEFAULT_USER_AGENT)
                 .url("https://bing.com/translator")
@@ -56,7 +107,7 @@ public class TranslateConfigManager {
 
         try (Response response = okHttpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
-                throw new RuntimeException("Load bing translator page failed.");
+                throw new TranslationConfigLoadException("Load bing translator page failed.");
             }
 
             // okhttp 自动处理重定向
@@ -68,19 +119,20 @@ public class TranslateConfigManager {
                 translateDomain = url.substring(0, url.lastIndexOf('/'));
                 translatePageUrl = url;
                 translateApiUrl = translateDomain + "/ttranslatev3?isVertical=1";
-                inited = true;
-
-                initCondition.signalAll();
             } finally {
                 lock.unlock();
             }
+        } catch (IOException e) {
+            throw new TranslationConfigLoadException("Load translation config occur a error.", e);
         }
     }
 
-    private void loadConfig() {
+    private void loadConfig() throws TranslationConfigLoadException {
         if (translateConfig != null && !isExpirationSoon(translateConfig)) {
             return;
         }
+
+        IOException occuredIOException = null;
 
         for (int i = 0, maxRetryTimes = 3; i < maxRetryTimes; i++) {
             Request request = new Request.Builder()
@@ -94,17 +146,19 @@ public class TranslateConfigManager {
                 lock.lock();
                 try {
                     translateConfig = config;
+                    latestConfigLoadException = null;
                     loadConfigCondition.signalAll();
                     return;
                 } finally {
                     lock.unlock();
                 }
             } catch (IOException e) {
-                log.error("Load bing translator failed.", e);
+                log.error("Load bing translator config failed.", e);
+                occuredIOException = e;
             }
         }
 
-        throw new RuntimeException("Load bing translator failed, retry 3 times.");
+        throw (latestConfigLoadException = new TranslationConfigLoadException("Load bing translator config failed, retry 3 times.", occuredIOException));
     }
 
     private boolean isExpirationSoon(TranslateConfig config) {
@@ -153,29 +207,21 @@ public class TranslateConfigManager {
         return config;
     }
 
-    public TranslateConfig getTranslateConfig() {
-        return blockGetUntilInitSuccessful(() -> {
-            while (translateConfig.isTokenExpired()) {
-                lock.lock();
-                try {
-                    loadConfigCondition.await();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return null;
-                } finally {
-                    lock.unlock();
-                }
-            }
+    /**
+     * 获取翻译配置
+     *
+     * @return TranslateConfig
+     * @throws TranslationConfigLoadException 当获取翻译配置失败时，抛出该异常
+     */
+    public TranslateConfig getTranslateConfig() throws TranslationConfigLoadException {
+        if (latestConfigLoadException != null) {
+            throw latestConfigLoadException;
+        }
 
-            return translateConfig;
-        });
-    }
-
-    private <T> T blockGetUntilInitSuccessful(Supplier<T> supplier) {
-        while (!inited) {
+        while (translateConfig.isTokenExpired()) {
             lock.lock();
             try {
-                initCondition.await();
+                loadConfigCondition.await();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
@@ -184,21 +230,12 @@ public class TranslateConfigManager {
             }
         }
 
-        return supplier.get();
+        return translateConfig;
     }
 
-    public String getTranslateDomain() {
-        return blockGetUntilInitSuccessful(() -> translateDomain);
-    }
-
-    public String getTranslatePageUrl() {
-        return blockGetUntilInitSuccessful(() -> translatePageUrl);
-    }
-
-    public String getTranslateApiUrl() {
-        return blockGetUntilInitSuccessful(() -> translateApiUrl);
-    }
-
+    /**
+     * 关闭翻译配置管理器
+     */
     public void close() {
         scheduledExecutorService.shutdown();
         try {

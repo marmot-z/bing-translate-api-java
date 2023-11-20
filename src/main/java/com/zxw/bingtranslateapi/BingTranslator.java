@@ -1,9 +1,12 @@
 package com.zxw.bingtranslateapi;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.*;
+import com.zxw.bingtranslateapi.entity.RawTranslationResponse;
+import com.zxw.bingtranslateapi.entity.TranslateConfig;
+import com.zxw.bingtranslateapi.entity.TranslationParams;
+import com.zxw.bingtranslateapi.entity.TranslationResult;
+import com.zxw.bingtranslateapi.exception.TranslateException;
+import com.zxw.bingtranslateapi.exception.TranslationConfigLoadException;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 
@@ -11,24 +14,42 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
+/**
+ * bing 翻译器 <br>
+ */
 @Slf4j
 public class BingTranslator {
 
     public static final String DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36";
 
-    private OkHttpClient httpClient;
+    /**
+     * okHttpClient instance
+     */
+    private final OkHttpClient okHttpClient;
+    /**
+     * 翻译配置管理器
+     */
+    private final TranslationConfigManager translationConfigManager;
 
-    private TranslateConfigManager translateConfigManager;
-
-    public BingTranslator(OkHttpClient httpClient) {
-        this.httpClient = httpClient;
-        this.translateConfigManager = new TranslateConfigManager(httpClient);
+    public BingTranslator(OkHttpClient okHttpClient) {
+        this.okHttpClient = okHttpClient;
+        this.translationConfigManager = new TranslationConfigManager(okHttpClient);
     }
 
-    public TranslationResult translate(TranslationParams params) throws Exception {
+    /**
+     * 将文本翻译成指定类型语言
+     *
+     * @param params 翻译相关参数
+     * @return
+     * @throws TranslateException 当翻译时出现任何错误时，抛出该异常。
+     *                              当响应为 401 时抛出该异常，代表请求过快，应适当放慢请求频率
+     *                              当响应为 {"ShowCaptcha": true} 时抛出该异常，代表请求过快需要验证码验证，应适当放慢请求频率
+     * @throws TranslationConfigLoadException 当获取翻译配置时出现错误，抛出该异常
+     * @throws IllegalArgumentException 当待翻译文本为空，或者来源、目标语言类型不支持时抛出该异常
+     */
+    public TranslationResult translate(TranslationParams params) throws TranslateException, TranslationConfigLoadException {
         String text = params.getText();
 
         if (text == null || text.isBlank()) {
@@ -39,28 +60,37 @@ public class BingTranslator {
             throw new IllegalArgumentException("Unsupported lang, fromLang: " + params.getFromLang() + ", toLang: " + params.getToLang());
         }
 
-        String response = doTranslateRequest(params);
-        List<RawTranslationResponse> rawTranslationResponses;
-        try {
-            ObjectMapper objectMapper = new ObjectMapper();
-            objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            rawTranslationResponses = objectMapper.readValue(response, new TypeReference<>() {});
-        } catch (JsonProcessingException e) {
-            log.error("Response body scheme illegal: {}", response);
-            return null;
+        String responseBody = doTranslateRequest(params);
+        JsonParser jsonParser = new JsonParser();
+        JsonElement jsonElement = jsonParser.parse(responseBody);
+
+        if (jsonElement.isJsonObject()) {
+            JsonObject jsonObject = jsonElement.getAsJsonObject();
+            JsonPrimitive field = jsonObject.getAsJsonPrimitive("ShowCaptcha");
+
+            if (field != null && field.getAsBoolean()) {
+                throw new TranslateException("Sorry that bing translator seems to be asking for the captcha, " +
+                        "please take care not to request too frequently.");
+            }
         }
 
-        if (rawTranslationResponses.isEmpty()) {
-            return null;
+        if (!jsonElement.isJsonArray()) {
+            throw new TranslateException("Translation result schema illegal : " + responseBody);
         }
 
-        RawTranslationResponse translationResponse = rawTranslationResponses.get(0);
+        RawTranslationResponse[] rawTranslationResponses = new Gson().fromJson(jsonElement, RawTranslationResponse[].class);
+        TranslationResult result = new TranslationResult();
+        result.setRawResponse(responseBody);
+        result.setText(params.getText());
+
+        if (rawTranslationResponses == null || rawTranslationResponses.length == 0) {
+            return result;
+        }
+
+        RawTranslationResponse translationResponse = rawTranslationResponses[0];
         List<RawTranslationResponse.Translation> translations = translationResponse.getTranslations();
         RawTranslationResponse.DetectedLanguage detectedLanguage = translationResponse.getDetectedLanguage();
-        TranslationResult result = new TranslationResult();
 
-        result.setRawResponse(response);
-        result.setText(params.getText());
         result.setTranslation(translations.get(0).getText());
         TranslationResult.LanguageInfo languageInfo = TranslationResult.LanguageInfo
                 .builder()
@@ -73,8 +103,8 @@ public class BingTranslator {
         return result;
     }
 
-    private String doTranslateRequest(TranslationParams params) throws IOException {
-        TranslateConfig translateConfig = translateConfigManager.getTranslateConfig();
+    private String doTranslateRequest(TranslationParams params) throws TranslateException, TranslationConfigLoadException {
+        TranslateConfig translateConfig = translationConfigManager.getTranslateConfig();
         String requestUrl = createRequestUrl(translateConfig);
         RequestBody requestBody = createRequestBody(translateConfig, params);
         String userAgent = params.getUserAgent() == null || params.getUserAgent().isBlank() ?
@@ -85,25 +115,25 @@ public class BingTranslator {
                 .url(requestUrl)
                 .method("POST", requestBody)
                 .addHeader("user-agent", userAgent)
-                .addHeader("origin", translateConfigManager.getTranslateDomain())
-                .addHeader("referer", translateConfigManager.getTranslatePageUrl())
+                .addHeader("origin", translationConfigManager.getTranslateDomain())
+                .addHeader("referer", translationConfigManager.getTranslatePageUrl())
                 .addHeader("cookie", translateConfig.getCookie())
                 .addHeader("content-type", "application/x-www-form-urlencoded")
                 .build();
 
-        try (Response response = httpClient.newCall(request).execute()) {
-            ResponseBody responseBody = response.body();
-
-            if (Objects.isNull(responseBody)) {
-                throw new IOException("Request " + requestUrl + " body failed.");
+        try (Response response = okHttpClient.newCall(request).execute()) {
+            if (response.code() == 401) {
+                throw new TranslateException("Translation limit exceeded. Please try it again later.");
             }
 
-            return responseBody.string();
+            return response.body().string();
+        } catch (IOException e) {
+            throw new TranslateException("Translate occur a error.", e);
         }
     }
 
     private String createRequestUrl(TranslateConfig translateConfig) {
-        return String.format("%s&&IG=%s&IID=%s", translateConfigManager.getTranslateApiUrl(), translateConfig.getIG(), translateConfig.getIID());
+        return String.format("%s&&IG=%s&IID=%s", translationConfigManager.getTranslateApiUrl(), translateConfig.getIG(), translateConfig.getIID());
     }
 
     private RequestBody createRequestBody(TranslateConfig translateConfig, TranslationParams params) {
@@ -126,6 +156,6 @@ public class BingTranslator {
     }
 
     public void close() {
-        translateConfigManager.close();
+        translationConfigManager.close();
     }
 }

@@ -1,4 +1,4 @@
-package com.zxw.bingtranslateapi;
+package com.zxw.bingtranslateapi.entity;
 
 import lombok.Builder;
 import lombok.Data;
