@@ -2,6 +2,8 @@ package com.zxw.bingtranslateapi;
 
 import com.zxw.bingtranslateapi.entity.TranslationParams;
 import com.zxw.bingtranslateapi.entity.TranslationResult;
+import com.zxw.bingtranslateapi.exception.TranslateException;
+import com.zxw.bingtranslateapi.exception.TranslationConfigLoadException;
 import okhttp3.OkHttpClient;
 
 import java.net.InetSocketAddress;
@@ -12,20 +14,25 @@ public class BingTranslatorTests {
     public static void main(String[] args) throws Exception {
         Proxy proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress("localhost", 1080));
         OkHttpClient httpClient = new OkHttpClient().newBuilder()
+                // use http proxy
                 .proxy(proxy)
                 .build();
         BingTranslator translator = new BingTranslator(httpClient);
 
-        TranslationResult result;
         try {
             TranslationParams params = TranslationParams.builder()
                     .text("你好")
-                    .fromLang(Languages.DEFAULT_FROM_LANG)
-                    .toLang(Languages.DEFAULT_TO_LANG)
+                    .fromLang("auto-detect")
+                    .toLang("en")
                     .build();
-            result = translator.translate(params);
+            TranslationResult result = translator.translate(params);
 
             System.out.println(result);
+        }
+        // the following exception thrown when an error occurs
+        // in translate (or getting translation config)
+        catch (TranslateException | TranslationConfigLoadException e) {
+            e.printStackTrace();
         } finally {
             translator.close();
         }
