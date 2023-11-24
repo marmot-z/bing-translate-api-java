@@ -3,6 +3,9 @@ package com.zxw.bingtranslateapi.entity;
 import lombok.Builder;
 import lombok.Data;
 
+/**
+ * 翻译返回结果
+ */
 @Data
 public class TranslationResult {
 

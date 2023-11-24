@@ -2,7 +2,7 @@ package com.zxw.bingtranslateapi;
 
 import com.zxw.bingtranslateapi.entity.TranslationParams;
 import com.zxw.bingtranslateapi.entity.TranslationResult;
-import com.zxw.bingtranslateapi.exception.TranslateException;
+import com.zxw.bingtranslateapi.exception.TranslationException;
 import com.zxw.bingtranslateapi.exception.TranslationConfigLoadException;
 import okhttp3.OkHttpClient;
 
@@ -31,7 +31,7 @@ public class BingTranslatorTests {
         }
         // the following exception thrown when an error occurs
         // in translate (or getting translation config)
-        catch (TranslateException | TranslationConfigLoadException e) {
+        catch (TranslationException | TranslationConfigLoadException e) {
             e.printStackTrace();
         } finally {
             translator.close();

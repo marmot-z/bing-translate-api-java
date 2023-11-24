@@ -143,6 +143,8 @@ public class TranslationConfigManager {
             try (Response response = okHttpClient.newCall(request).execute()) {
                 TranslateConfig config = parseTranslatorPage(response);
 
+                log.info("Load bing translator config success");
+
                 lock.lock();
                 try {
                     translateConfig = config;
@@ -158,7 +160,7 @@ public class TranslationConfigManager {
             }
         }
 
-        throw (latestConfigLoadException = new TranslationConfigLoadException("Load bing translator config failed, retry 3 times.", occuredIOException));
+        latestConfigLoadException = new TranslationConfigLoadException("Load bing translator config failed, retry 3 times.", occuredIOException);
     }
 
     private boolean isExpirationSoon(TranslateConfig config) {

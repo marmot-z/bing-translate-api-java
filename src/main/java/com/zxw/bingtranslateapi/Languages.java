@@ -10,6 +10,9 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 翻译支持的语言类型
+ */
 @Slf4j
 public class Languages {
 

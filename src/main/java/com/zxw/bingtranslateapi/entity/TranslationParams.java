@@ -4,6 +4,9 @@ import com.zxw.bingtranslateapi.Languages;
 import lombok.Builder;
 import lombok.Data;
 
+/**
+ * 翻译参数
+ */
 @Data
 @Builder
 public class TranslationParams {

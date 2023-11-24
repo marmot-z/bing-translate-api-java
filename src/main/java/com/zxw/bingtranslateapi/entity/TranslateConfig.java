@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.util.Date;
 
+/**
+ * 翻译配置
+ */
 @Data
 public class TranslateConfig {
     private String IG;

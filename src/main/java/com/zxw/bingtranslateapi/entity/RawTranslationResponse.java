@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * bing 翻译原始返回结果
+ */
 @Data
 public class RawTranslationResponse {
 
