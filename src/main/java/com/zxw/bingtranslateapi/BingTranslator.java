@@ -35,8 +35,12 @@ public class BingTranslator {
     private final TranslationConfigManager translationConfigManager;
 
     public BingTranslator(OkHttpClient okHttpClient) {
+        this(okHttpClient, false);
+    }
+
+    public BingTranslator(OkHttpClient okHttpClient, boolean renewable) {
         this.okHttpClient = okHttpClient;
-        this.translationConfigManager = new TranslationConfigManager(okHttpClient);
+        this.translationConfigManager = new TranslationConfigManager(okHttpClient, renewable);
     }
 
     /**

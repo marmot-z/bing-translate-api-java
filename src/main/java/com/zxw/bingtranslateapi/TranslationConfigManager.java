@@ -17,7 +17,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,15 +44,19 @@ public class TranslationConfigManager {
      */
     private final Condition loadConfigCondition = lock.newCondition();
     /**
-     * 定时线程池<br>
-     * 用于定时更新翻译配置
-     */
-    private final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(1);
-    /**
      * okHttpClient instance
      */
     private final OkHttpClient okHttpClient;
+    /**
+     * 是否自动续约翻译配置
+     */
+    private final boolean renewable;
 
+    /**
+     * 定时线程池<br>
+     * 用于定时更新翻译配置
+     */
+    private ScheduledExecutorService scheduledExecutorService;
     /**
      * 翻译配置 <br>
      * 该对象线程安全由 {@link #lock} 守护
@@ -89,14 +92,30 @@ public class TranslationConfigManager {
     /**
      * TranslationConfigManager construct
      *
-     * @param okHttpClient
+     * @param okHttpClient {@link OkHttpClient}
      * @throws TranslationConfigLoadException 当初始化翻译参数时出现错误时，抛出该异常
      */
     public TranslationConfigManager(OkHttpClient okHttpClient) throws TranslationConfigLoadException {
+        this(okHttpClient, false);
+    }
+
+    /**
+     * TranslationConfigManager construct
+     *
+     * @param okHttpClient {@link OkHttpClient}
+     * @param renewable 是否自动续约翻译配置
+     * @throws TranslationConfigLoadException 当初始化翻译参数时出现错误时，抛出该异常
+     */
+    public TranslationConfigManager(OkHttpClient okHttpClient, boolean renewable) throws TranslationConfigLoadException {
         this.okHttpClient = okHttpClient;
+        this.renewable = renewable;
 
         determineTranslateDomain();
-        scheduledExecutorService.scheduleAtFixedRate(this::loadConfig, 0L, 1000L, TimeUnit.MILLISECONDS);
+
+        if (renewable) {
+            scheduledExecutorService = Executors.newScheduledThreadPool(1);
+            scheduledExecutorService.scheduleAtFixedRate(this::loadConfig, 0L, 1000L, TimeUnit.MILLISECONDS);
+        }
     }
 
     private void determineTranslateDomain() throws TranslationConfigLoadException {
@@ -212,7 +231,7 @@ public class TranslationConfigManager {
     /**
      * 获取翻译配置
      *
-     * @return TranslateConfig
+     * @return TranslateConfig 翻译配置，获取配置时被中断返回 null
      * @throws TranslationConfigLoadException 当获取翻译配置失败时，抛出该异常
      */
     public TranslateConfig getTranslateConfig() throws TranslationConfigLoadException {
@@ -222,8 +241,17 @@ public class TranslationConfigManager {
 
         while (translateConfig.isTokenExpired()) {
             lock.lock();
+
             try {
-                loadConfigCondition.await();
+                // 不自动续约时，加载新配置由当前请求线程完成
+                if (!renewable) {
+                    loadConfig();
+                }
+                // 自动续约时，加载新配置由定时线程完成
+                // 完成后唤醒在该 condition 上等待的所有线程
+                else {
+                    loadConfigCondition.await();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
@@ -239,11 +267,14 @@ public class TranslationConfigManager {
      * 关闭翻译配置管理器
      */
     public void close() {
-        scheduledExecutorService.shutdown();
-        try {
-            scheduledExecutorService.awaitTermination(10, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        if (Objects.nonNull(scheduledExecutorService)) {
+            scheduledExecutorService.shutdown();
+
+            try {
+                scheduledExecutorService.awaitTermination(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }
