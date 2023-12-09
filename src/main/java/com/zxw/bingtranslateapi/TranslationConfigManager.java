@@ -151,6 +151,8 @@ public class TranslationConfigManager {
             return;
         }
 
+        log.debug("Reload translation config!");
+
         IOException occuredIOException = null;
 
         for (int i = 0, maxRetryTimes = 3; i < maxRetryTimes; i++) {
